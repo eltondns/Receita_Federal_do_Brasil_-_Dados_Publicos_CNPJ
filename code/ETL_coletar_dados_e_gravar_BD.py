@@ -73,14 +73,13 @@ def getEnv(env):
 current_path = pathlib.Path().resolve()
 dotenv_path = os.path.join(current_path, '.env')
 if not os.path.isfile(dotenv_path):
-    print('Especifique o local do seu arquivo de configuração ".env". Por exemplo: C:\...\Receita_Federal_do_Brasil_-_Dados_Publicos_CNPJ\code')
-    # C:\Aphonso_C\Git\Receita_Federal_do_Brasil_-_Dados_Publicos_CNPJ\code
+    print('Especifique o local do seu arquivo de configuração ".env".')
     local_env = input()
     dotenv_path = os.path.join(local_env, '.env')
 print(dotenv_path)
 load_dotenv(dotenv_path=dotenv_path)
 
-dados_rf = 'http://200.152.38.155/CNPJ/'
+dados_rf = 'https://arquivos.receitafederal.gov.br/dados/cnpj/dados_abertos_cnpj/'
 
 #%%
 # Read details from ".env" file:
@@ -101,6 +100,7 @@ except:
     print('Erro na definição dos diretórios, verifique o arquivo ".env" ou o local informado do seu arquivo de configuração.')
 
 #%%
+# Obter o diretório mais recente
 raw_html = urllib.request.urlopen(dados_rf)
 raw_html = raw_html.read()
 
@@ -108,33 +108,50 @@ raw_html = raw_html.read()
 page_items = bs.BeautifulSoup(raw_html, 'lxml')
 html_str = str(page_items)
 
-# Obter arquivos
+# Depurar o HTML retornado
+print("HTML retornado pela URL:")
+print(html_str)
+
+# Identificar os diretórios disponíveis
+directories = []
+for m in re.finditer(r'href="(\d{4}-\d{2}/)"', html_str):
+    directories.append(m.group(1))
+
+# Verificar se encontrou diretórios
+if not directories:
+    print("Nenhum diretório encontrado na URL fornecida.")
+    sys.exit(1)
+
+# Ordenar os diretórios para encontrar o mais recente
+directories.sort(reverse=True)
+latest_directory = directories[0]
+print(f"Diretório mais recente encontrado: {latest_directory}")
+
+# Atualizar a URL para o diretório mais recente
+latest_url = dados_rf + latest_directory
+print(f"Acessando o diretório: {latest_url}")
+
+# Obter os arquivos .zip do diretório mais recente
+raw_html = urllib.request.urlopen(latest_url)
+raw_html = raw_html.read()
+page_items = bs.BeautifulSoup(raw_html, 'lxml')
+html_str = str(page_items)
+
+# Obter arquivos .zip
 Files = []
-text = '.zip'
-for m in re.finditer(text, html_str):
-    i_start = m.start()-40
-    i_end = m.end()
-    i_loc = html_str[i_start:i_end].find('href=')+6
-    Files.append(html_str[i_start+i_loc:i_end])
+for m in re.finditer(r'href="([\w\-\.]+\.zip)"', html_str):
+    Files.append(m.group(1))
 
-# Correcao do nome dos arquivos devido a mudanca na estrutura do HTML da pagina - 31/07/22 - Aphonso Rafael
-Files_clean = []
-for i in range(len(Files)):
-    if not Files[i].find('.zip">') > -1:
-        Files_clean.append(Files[i])
-
-try:
-    del Files
-except:
-    pass
-
-Files = Files_clean
+# Verificar se encontrou arquivos .zip
+if not Files:
+    print("Nenhum arquivo .zip encontrado no diretório mais recente.")
+    sys.exit(1)
 
 print('Arquivos que serão baixados:')
-i_f = 0
-for f in Files:
-    i_f += 1
-    print(str(i_f) + ' - ' + f)
+for i, f in enumerate(Files, start=1):
+    print(f"{i} - {f}")
+
+print("Arquivos encontrados no diretório mais recente:", Files)
 
 #%%
 ########################################################################################################################
@@ -155,10 +172,13 @@ for l in Files:
     i_l += 1
     print('Baixando arquivo:')
     print(str(i_l) + ' - ' + l)
-    url = dados_rf+l
+    url = latest_url + l  # Use latest_url para incluir o diretório mais recente
     file_name = os.path.join(output_files, l)
     if check_diff(url, file_name):
-        wget.download(url, out=output_files, bar=bar_progress)
+        try:
+            wget.download(url, out=output_files, bar=bar_progress)
+        except Exception as e:
+            print(f"Erro ao baixar o arquivo {l}: {e}")
 
 #%%
 # Download layout:
